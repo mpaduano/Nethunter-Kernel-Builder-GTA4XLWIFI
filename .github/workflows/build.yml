@@ -79,17 +79,23 @@ jobs:
           
           echo "PATH Variable: $PATH"
 
-      - name: "Set args"
+      - name: "😎 Set args"
         id: generate-args
         working-directory: ./${{ env.kernelDir }}
         env:
-          params: "${{ toJSON(matrix.repos.params) }}"
-          extraParams: "${{ toJSON(matrix.repos.extraParams) }}"
+          params: ${{ toJSON(matrix.repos.params) }}
+          extraParams: ${{ toJSON(matrix.repos.extraParams) }}
         run: |
-          ARCH=$(echo '$params' | jq -r '.ARCH // "arm64"')
-          CROSS_COMPILE=$(echo '$params' | jq -r '.CROSS_COMPILE // ""')
-          CLANG_TRIPLE=$(echo '$params' | jq -r '.CLANG_TRIPLE // ""')
-          CC=$(echo '$params' | jq -r '.CC // ""')
+          echo "PATH Variable: $PATH"
+          
+          # Add double quotes around "$params"
+          ARCH=$(echo "$params" | jq -r ".ARCH")
+          CROSS_COMPILE=$(echo "$params" | jq -r ".CROSS_COMPILE")
+          CROSS_COMPILE_COMPAT=$(echo "$params" | jq -r ".CROSS_COMPILE_COMPAT")
+          CROSS_COMPILE_ARM32=$(echo "$params" | jq -r ".CROSS_COMPILE_ARM32")
+          CLANG_TRIPLE=$(echo "$params" | jq -r ".CLANG_TRIPLE")
+          AR=$(echo "$params" | jq -r ".AR")
+          CC=$(echo "$params" | jq -r ".CC")
 
           echo "ARCH=$ARCH" >> $GITHUB_ENV
 
@@ -98,17 +104,35 @@ jobs:
             mkdir -p $(pwd)/${{ env.OUT_DIR }}
             args="$args O=$(pwd)/${{ env.OUT_DIR }}"
           fi
-          [ -n "$ARCH" ] && args="$args ARCH=$ARCH"
-          [ -n "$CROSS_COMPILE" ] && args="$args CROSS_COMPILE=$CROSS_COMPILE"
-          [ -n "$CLANG_TRIPLE" ] && args="$args CLANG_TRIPLE=$CLANG_TRIPLE"
-          [ -n "$CC" ] && args="$args CC=$CC"
-
-          extra_params=""
-          if [ "$extraParams" != "null" ] && [ "$extraParams" != "{}" ]; then
-            extra_params=$(echo '$extraParams' | jq -r 'to_entries[] | select(.value != "") | "\(.key)=\(.value)"' | tr "\n" " " | sed 's/ $//')
+          
+          if [ -n "$ARCH" ] && [ "$ARCH" != "null" ]; then
+            args="$args ARCH=$ARCH"
           fi
-
-          echo "args=$args $extra_params" >> $GITHUB_OUTPUT
+          if [ -n "$CROSS_COMPILE" ] && [ "$CROSS_COMPILE" != "null" ]; then
+            args="$args CROSS_COMPILE=$CROSS_COMPILE"
+          fi
+          if [ -n "$CLANG_TRIPLE" ] && [ "$CLANG_TRIPLE" != "null" ]; then
+            args="$args CLANG_TRIPLE=$CLANG_TRIPLE"
+          fi
+          if [ -n "$CROSS_COMPILE_COMPAT" ] && [ "$CROSS_COMPILE_COMPAT" != "null" ]; then
+            args="$args CROSS_COMPILE_ARM32=$CROSS_COMPILE_COMPAT"
+          fi
+          if [ -n "$AR" ] && [ "$AR" != "null" ]; then
+            args="$args AR=$AR"
+          fi
+          if [ -n "$CC" ] && [ "$CC" != "null" ]; then
+            args="$args CC=$CC"
+          fi
+          
+          echo "args=$args" >> $GITHUB_OUTPUT
+          
+          # Add double quotes around "$extraParams"
+          if [ "$extraParams" != "null" ] && [ "$extraParams" != "{}" ]; then
+            extra_params=$(echo "$extraParams" | jq -r 'to_entries[] | select(.value != "") | "\(.key)=\(.value)"' | tr "\n" " " | sed 's/ $//')
+            echo "args=$args $extra_params" >> $GITHUB_OUTPUT
+          else
+            echo "args=$args" >> $GITHUB_OUTPUT
+          fi
 
       - name: "Make defconfig"
         working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
