@@ -1,4 +1,4 @@
-This repo is a fixed version of the "Bluejay kali nethunter kernel repo'
+
 
 
 
