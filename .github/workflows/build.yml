@@ -58,20 +58,26 @@ jobs:
         run: |
           git clone --recursive --branch ${{ env.kernelBranch }} ${{ env.kernelRepo }} ${{ env.kernelName }} --depth=1
 
-      - name: "Get toolchains"
+      - name: "💫 Get toolchains"
         working-directory: ./${{ env.kernelDir }}
         env:
-          toolchains: "${{ toJSON(matrix.repos.toolchains) }}"
+          toolchains: ${{ toJSON(matrix.repos.toolchains) }}
         run: |
-          toolchains_num="$(echo '$toolchains' | jq 'length')"
+          # Add double quotes around "$toolchains" to preserve JSON formatting
+          toolchains_num=$(echo "$toolchains" | jq 'length')
+          echo "Found $toolchains_num toolchains"
+          
           for ((i=0;i<toolchains_num;i++)); do
-            name=$(echo '$toolchains' | jq -r ".[$i].name")
-            repo=$(echo '$toolchains' | jq -r ".[$i].repo")
-            branch=$(echo '$toolchains' | jq -r ".[$i].branch")
+            name=$(echo "$toolchains" | jq -r ".[$i].name")
+            repo=$(echo "$toolchains" | jq -r ".[$i].repo")
+            branch=$(echo "$toolchains" | jq -r ".[$i].branch")
+            
             git clone --recursive --branch $branch $repo $name --depth=1
             echo "$(pwd)/$name" >> $GITHUB_PATH
             echo "$(pwd)/$name/bin" >> $GITHUB_PATH
           done
+          
+          echo "PATH Variable: $PATH"
 
       - name: "Set args"
         id: generate-args
