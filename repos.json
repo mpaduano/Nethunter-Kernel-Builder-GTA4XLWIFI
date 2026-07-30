@@ -1,5 +1,5 @@
 [
- {
+  {
     "kernelSource": {
       "name": "gta4xl",
       "repo": "https://github.com/LineageOS/android_kernel_samsung_gta4xl",
@@ -31,5 +31,5 @@
     "extraParams": {
       "KEEP": ""
     }
- }
+  }
 ]
