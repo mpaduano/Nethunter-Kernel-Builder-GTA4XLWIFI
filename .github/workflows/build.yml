@@ -192,7 +192,7 @@ jobs:
           sed -i 's/device.name2=.*/device.name2=gta4xl/g' anykernel.sh
           
           # IMPORTANT: Replace the path below with the output you got from Termux
-          sed -i 's|block=.*|block=/dev/block/platform/YOUR_ACTUAL_PATH_HERE/by-name/boot|g' anykernel.sh
+          sed -i 's|block=.*|block=/dev/block/platform/dev/block/sda12/by-name/boot|g' anykernel.sh
           
           echo "Zipping up AnyKernel3 package..."
           zip -r9 ../AnyKernel3-gta4xlwifi-NetHunter.zip * -x .git README.md *placeholder
