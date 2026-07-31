@@ -1,4 +1,4 @@
-This repo is a fixed version of the "Bluejay kali nethunter kernel repo'
+This repo is a version of the nethunter kernel repo for the gta4xlwifi
 
 
 
