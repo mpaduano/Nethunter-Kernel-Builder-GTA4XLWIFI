@@ -186,13 +186,13 @@ jobs:
           echo "Configuring anykernel.sh..."
           cd anykernel
           
-          # Use sed to replace the default variables with your Tab S6 Lite info
-          sed -i 's/kernel.string=.*/kernel.string=Custom NetHunter Kernel by YOU/g' anykernel.sh
-          sed -i 's/device.name1=.*/device.name1=gta4xlwifi/g' anykernel.sh
-          sed -i 's/device.name2=.*/device.name2=gta4xl/g' anykernel.sh
+          # Forcefully replace the default variables, ensuring semicolons remain intact
+          sed -i 's/^kernel.string=.*/kernel.string=Custom NetHunter Kernel;/g' anykernel.sh
+          sed -i 's/^device.name1=.*/device.name1=gta4xlwifi;/g' anykernel.sh
+          sed -i 's/^device.name2=.*/device.name2=gta4xl;/g' anykernel.sh
           
-          # IMPORTANT: Replace the path below with the output you got from Termux
-          sed -i 's|block=.*|block=/dev/block/platform/dev/block/sda12/by-name/boot|g' anykernel.sh
+          # Use "auto" to let AnyKernel3 find the boot partition itself, or hardcode the exact Samsung path
+          sed -i 's|^block=.*|block=auto;|g' anykernel.sh
           
           echo "Zipping up AnyKernel3 package..."
           zip -r9 ../AnyKernel3-gta4xlwifi-NetHunter.zip * -x .git README.md *placeholder
