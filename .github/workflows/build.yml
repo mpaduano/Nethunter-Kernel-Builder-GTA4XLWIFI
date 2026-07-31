@@ -169,3 +169,37 @@ jobs:
             ./${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtbo.img
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: "📦 Package with AnyKernel3"
+        working-directory: ./${{ env.kernelDir }}
+        run: |
+          echo "Cloning AnyKernel3..."
+          git clone https://github.com/osm0sis/AnyKernel3.git anykernel
+          
+          echo "Copying compiled kernel image..."
+          # Assuming your output is in 'out' and you are building arm64
+          cp out/arch/arm64/boot/Image anykernel/
+          
+          # If your build also generated dtb files, copy them too
+          cp out/arch/arm64/boot/dts/exynos/*.dtb anykernel/dtb/
+          
+          echo "Configuring anykernel.sh..."
+          cd anykernel
+          
+          # Use sed to replace the default variables with your Tab S6 Lite info
+          sed -i 's/kernel.string=.*/kernel.string=Custom NetHunter Kernel by YOU/g' anykernel.sh
+          sed -i 's/device.name1=.*/device.name1=gta4xlwifi/g' anykernel.sh
+          sed -i 's/device.name2=.*/device.name2=gta4xl/g' anykernel.sh
+          
+          # IMPORTANT: Replace the path below with the output you got from Termux
+          sed -i 's|block=.*|block=/dev/block/platform/YOUR_ACTUAL_PATH_HERE/by-name/boot|g' anykernel.sh
+          
+          echo "Zipping up AnyKernel3 package..."
+          zip -r9 ../AnyKernel3-gta4xlwifi-NetHunter.zip * -x .git README.md *placeholder
+          
+      - name: "🚀 Upload Flashable Zip"
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnyKernel3-gta4xlwifi-NetHunter
+          path: ./${{ env.kernelDir }}/AnyKernel3-gta4xlwifi-NetHunter.zip
+
