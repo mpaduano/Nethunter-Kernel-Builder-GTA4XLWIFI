@@ -181,7 +181,7 @@ jobs:
           cp out/arch/arm64/boot/Image anykernel/
           
           # If your build also generated dtb files, copy them too
-          cp out/arch/arm64/boot/dts/exynos/*.dtb anykernel/dtb/
+          # cp out/arch/arm64/boot/dts/exynos/*.dtb anykernel/dtb/
           
           echo "Configuring anykernel.sh..."
           cd anykernel
