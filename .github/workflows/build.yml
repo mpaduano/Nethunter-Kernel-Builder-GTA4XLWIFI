@@ -42,6 +42,7 @@ jobs:
       kernelBranch: ${{ matrix.repos.kernelSource.branch }}
       kernelDevice: ${{ matrix.repos.kernelSource.device }}
       DEFCONFIG_NAME: ${{ matrix.repos.kernelSource.device }}_defconfig
+      NET_HUNTER_PATCHES: https://github.com/nethunter-project/nethunter-kernel-patches/archive/refs/heads/master.zip
       withKernelSU: ${{ matrix.repos.withKernelSU }}
 
     steps:
@@ -151,6 +152,13 @@ jobs:
           cd ../${{ env.kernelName }}
           make ${{ env.args }} olddefconfig
 
+      - name: 📜 Apply NetHunter patches
+        run: |
+          cd kernel
+          curl -L ${{ env.NET_HUNTER_PATCHES }} -o patches.zip
+          unzip patches.zip
+          git apply nethunter-kernel-patches-master/*.patch || true
+
       - name: "Build kernel"
         working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
         env:
@@ -186,22 +194,15 @@ jobs:
           echo "Configuring anykernel.sh..."
           cd anykernel
           
-          # Forcefully replace variables without semicolons
+          # Minimal AnyKernel3 tweaks
           sed -i 's/kernel.string=.*/kernel.string=Custom NetHunter Kernel/g' anykernel.sh
-          
-          # Turn off the device check so it bypasses this error completely
           sed -i 's/do.devicecheck=.*/do.devicecheck=0/g' anykernel.sh
-          
-          # Set the device names anyway, just for clean code
-          sed -i 's/device.name1=.*/device.name1=gta4xlwifi/g' anykernel.sh
+          sed -i 's/device.name1=.*/device.name1=gta4xwifi/g' anykernel.sh
           sed -i 's/device.name2=.*/device.name2=gta4xl/g' anykernel.sh
-          
-          # Use "auto" to let AnyKernel3 find the boot partition itself
           sed -i 's|^block=.*|block=auto|g' anykernel.sh
-          
-          echo "Zipping up AnyKernel3 package..."
-          zip -r9 ../AnyKernel3-gta4xlwifi-NetHunter.zip * -x .git README.md *placeholder
-          
+          zip -r9 ../AnyKernel3-gta4xlwifi-NetHunter.zip *
+          echo "✅ AnyKernel3 zip ready"
+
       - name: "🚀 Upload Flashable Zip"
         uses: actions/upload-artifact@v4
         with:
