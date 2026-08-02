@@ -81,58 +81,44 @@ jobs:
           
       - name: "😎 Set args"
         id: generate-args
-        working-directory: ./${{ env.kernelDir }}
+        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
         env:
           params: ${{ toJSON(matrix.repos.params) }}
           extraParams: ${{ toJSON(matrix.repos.extraParams) }}
+          OUT_DIR: ${{ env.OUT_DIR }}
         run: |
-          echo "PATH Variable: $PATH"
-          
-          # Add double quotes around "$params"
-          ARCH=$(echo "$params" | jq -r ".ARCH")
-          CROSS_COMPILE=$(echo "$params" | jq -r ".CROSS_COMPILE")
-          CROSS_COMPILE_COMPAT=$(echo "$params" | jq -r ".CROSS_COMPILE_COMPAT")
-          CROSS_COMPILE_ARM32=$(echo "$params" | jq -r ".CROSS_COMPILE_ARM32")
-          CLANG_TRIPLE=$(echo "$params" | jq -r ".CLANG_TRIPLE")
-          AR=$(echo "$params" | jq -r ".AR")
-          CC=$(echo "$params" | jq -r ".CC")
+          set -euo pipefail
 
-          echo "ARCH=$ARCH" >> $GITHUB_ENV
+          # Parse params (they are already a JSON string)
+          arch=$(jq -r '.ARCH' <<< "$params")
+          cross=$(jq -r '.CROSS_COMPILE' <<< "$params")
+          cross_compat=$(jq -r '.CROSS_COMPILE_COMPAT' <<< "$params")
+          clang_triple=$(jq -r '.CLANG_TRIPLE' <<< "$params")
+          ar=$(jq -r '.AR' <<< "$params")
+          cc=$(jq -r '.CC' <<< "$params")
 
-          args="-j$(nproc --all)"
-          if [ -n "${{ env.OUT_DIR }}" ]; then
-            mkdir -p $(pwd)/${{ env.OUT_DIR }}
-            args="$args O=$(pwd)/${{ env.OUT_DIR }}"
+          # Export ARCH for later steps (workflow‑wide)
+          echo "ARCH=$arch" >> $GITHUB_ENV
+
+          # Base arguments
+          args="-j$(nproc --all) O=$(pwd)/$OUT_DIR"
+
+          # Append non‑null values
+          [[ "$arch" != "null" ]] && args="$args ARCH=$arch"
+          [[ "$cross" != "null" ]] && args="$args CROSS_COMPILE=$cross"
+          [[ "$cross_compat" != "null" ]] && args="$args CROSS_COMPILE_ARM32=$cross_compat"
+          [[ "$clang_triple" != "null" ]] && args="$args CLANG_TRIPLE=$clang_triple"
+          [[ "$ar" != "null" ]] && args="$args AR=$ar"
+          [[ "$cc" != "null" ]] && args="$args CC=$cc"
+
+          # Extra params (if any)
+          if [[ "$extraParams" != "null" && "$extraParams" != "{}" ]]; then
+            extra=$(jq -r 'to_entries[] | select(.value != "") | "\(.key)=\(.value)"' <<< "$extraParams" | tr '\n' ' ' | sed 's/ $//')
+            args="$args $extra"
           fi
-          
-          if [ -n "$ARCH" ] && [ "$ARCH" != "null" ]; then
-            args="$args ARCH=$ARCH"
-          fi
-          if [ -n "$CROSS_COMPILE" ] && [ "$CROSS_COMPILE" != "null" ]; then
-            args="$args CROSS_COMPILE=$CROSS_COMPILE"
-          fi
-          if [ -n "$CLANG_TRIPLE" ] && [ "$CLANG_TRIPLE" != "null" ]; then
-            args="$args CLANG_TRIPLE=$CLANG_TRIPLE"
-          fi
-          if [ -n "$CROSS_COMPILE_COMPAT" ] && [ "$CROSS_COMPILE_COMPAT" != "null" ]; then
-            args="$args CROSS_COMPILE_ARM32=$CROSS_COMPILE_COMPAT"
-          fi
-          if [ -n "$AR" ] && [ "$AR" != "null" ]; then
-            args="$args AR=$AR"
-          fi
-          if [ -n "$CC" ] && [ "$CC" != "null" ]; then
-            args="$args CC=$CC"
-          fi
-          
+
           echo "args=$args" >> $GITHUB_OUTPUT
-          
-          # Add double quotes around "$extraParams"
-          if [ "$extraParams" != "null" ] && [ "$extraParams" != "{}" ]; then
-            extra_params=$(echo "$extraParams" | jq -r 'to_entries[] | select(.value != "") | "\(.key)=\(.value)"' | tr "\n" " " | sed 's/ $//')
-            echo "args=$args $extra_params" >> $GITHUB_OUTPUT
-          else
-            echo "args=$args" >> $GITHUB_OUTPUT
-          fi
+          echo "🧭 Generated args: $args"
 
       - name: "Make defconfig"
         working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
