@@ -59,26 +59,26 @@ jobs:
           git clone --recursive --branch ${{ env.kernelBranch }} ${{ env.kernelRepo }} ${{ env.kernelName }} --depth=1
 
       - name: "💫 Get toolchains"
+        id: toolchains
         working-directory: ./${{ env.kernelDir }}
-        env:
-          toolchains: ${{ toJSON(matrix.repos.toolchains) }}
         run: |
-          # Add double quotes around "$toolchains" to preserve JSON formatting
-          toolchains_num=$(echo "$toolchains" | jq 'length')
-          echo "Found $toolchains_num toolchains"
-          
-          for ((i=0;i<toolchains_num;i++)); do
-            name=$(echo "$toolchains" | jq -r ".[$i].name")
-            repo=$(echo "$toolchains" | jq -r ".[$i].repo")
-            branch=$(echo "$toolchains" | jq -r ".[$i].branch")
-            
-            git clone --recursive --branch $branch $repo $name --depth=1
+          # Read the JSON from the environment variable (already quoted by GitHub)
+          toolchains='${{ env.toolchains }}'
+          # Validate JSON (helps catch malformed entries early)
+          echo "$toolchains" | jq . > /dev/null || { echo "❌ Invalid JSON in toolchains"; exit 1; }
+
+          for idx in $(seq 0 $(($(echo "$toolchains" | jq 'length') - 1))); do
+            name=$(echo "$toolchains" | jq -r ".[$idx].name")
+            repo=$(echo "$toolchains" | jq -r ".[$idx].repo")
+            branch=$(echo "$toolchains" | jq -r ".[$idx].branch")
+            echo "→ Cloning $name ($branch) into ./$name"
+            git clone --recursive --branch "$branch" "$repo" "$name" --depth=1
             echo "$(pwd)/$name" >> $GITHUB_PATH
             echo "$(pwd)/$name/bin" >> $GITHUB_PATH
           done
-          
-          echo "PATH Variable: $PATH"
 
+          echo "PATH Variable: $PATH"
+          
       - name: "😎 Set args"
         id: generate-args
         working-directory: ./${{ env.kernelDir }}
