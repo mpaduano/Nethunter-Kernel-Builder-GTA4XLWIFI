@@ -1,14 +1,17 @@
 name: Build NetHunter Kernel for GTA4XWiFi
 
 on:
-  workflow_dispatch:   # manual trigger (add push: if you want auto‑run on commits)
+  workflow_dispatch:          # manual trigger (add `push:` if you want auto‑run)
   # push:
   #   branches: [ main, master ]
 
 env:
+  # -------------------------------------------------
+  # 1️⃣ Device & build configuration
+  # -------------------------------------------------
   DEVICE_CODENAME: gta4xwifi
-  KERNEL_SOURCE: https://source.codeaurora.org/quic/kernel/msm
-  KERNEL_BRANCH: sec(α).03.00          # <-- quoted here, but it’s a literal string
+  KERNEL_SOURCE: https://github.com/LineageOS/kernel-msm   # mirror (see note below)
+  KERNEL_BRANCH: sec(α).03.00                # <-- quoted in the clone step
   KERNEL_CONFIG: GTA4XWiFi_defconfig
   NET_HUNTER_PATCHES: https://github.com/nethunter-project/nethunter-kernel-patches/archive/refs/heads/master.zip
 
@@ -16,18 +19,19 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 📥 Checkout repo
+      - name: 📥 Checkout the project (includes device trees, patches, etc.)
         uses: actions/checkout@v4
 
-      - name: 🐧 Setup build tools
+      - name: 🐧 Install build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y bc flex bison libssl-dev libelf-dev libncurses5-dev xz-utils \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf tmux curl zip unzip
 
-      - name: 📦 Clone kernel sources
+      - name: 📦 Clone kernel sources (quoted branch)
         run: |
-          # Quote the branch – parentheses & Greek letters cause syntax errors otherwise
+          # The branch name contains parentheses & a Greek letter – quoting prevents
+          # Bash from interpreting them as part of an arithmetic expression.
           git clone --recursive --branch "${{ env.KERNEL_BRANCH }}" ${{ env.KERNEL_SOURCE }} kernel --depth=1
 
       - name: 📂 Copy device‑tree & defconfig
@@ -43,7 +47,7 @@ jobs:
           unzip patches.zip
           git apply nethunter-kernel-patches-master/*.patch || true
 
-      - name: ⚙️ Build kernel & modules
+      - name: ⚙️ Build kernel, dtbs & modules
         run: |
           cd kernel
           make -j$(nproc) O=out ${{ env.KERNEL_CONFIG }}
@@ -65,7 +69,7 @@ jobs:
           git clone https://github.com/osm0sis/AnyKernel3.git anykernel
           cp out/arch/arm64/boot/Image anykernel/
           cd anykernel
-          # Basic AnyKernel3 tweaks
+          # Minimal AnyKernel3 tweaks
           sed -i 's/kernel.string=.*/kernel.string=Custom NetHunter Kernel/g' anykernel.sh
           sed -i 's/do.devicecheck=.*/do.devicecheck=0/g' anykernel.sh
           sed -i 's/device.name1=.*/device.name1=gta4xwifi/g' anykernel.sh
