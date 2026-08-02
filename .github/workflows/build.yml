@@ -125,23 +125,25 @@ jobs:
         env:
           args: ${{ steps.generate-args.outputs.args }}
         run: |
+          # The O=... part in $args already points to $OUT_DIR
           make ${{ env.args }} ${{ env.DEFCONFIG_NAME }}
 
       - name: "Apply Overlay Configs"
-        working-directory: ./${{ env.kernelDir }}/${{ env.OUT_DIR }}
-        env:
-          args: ${{ steps.generate-args.outputs.args }}
+        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}
         run: |
+          # Example overlay – adjust as needed for NetHunter
           echo "CONFIG_OF_CONFIGFS=y" >> .config
-          echo "CONFIG_OF_OVERLAY=y" >> .config
-          cd ../${{ env.kernelName }}
+          echo "CONFIG_OF_OVERLAY=y"   >> .config
+          # Go back to source root and run olddefconfig (still using O=...)
+          cd ..
           make ${{ env.args }} olddefconfig
-
+          
       - name: "Build kernel"
-        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}
+        working-directory: ./${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}
         env:
           args: ${{ steps.generate-args.outputs.args }}
         run: |
+          # The O=. part is already in $args, but we are already inside out/
           make ${{ env.args }}
 
       - name: "Upload Artifacts"
@@ -149,48 +151,52 @@ jobs:
         with:
           name: kernel-build-${{ env.kernelDevice }}
           path: |
-            ./${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image
-            ./${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image.gz
-            ./${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtb
-            ./${{ env.kernelDir }}/${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtbo.img
+            ./${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image
+            ./${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image.gz
+            ./${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtb
+            ./${{ env.kernelDir }}/${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtbo.img
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: "📦 Package with AnyKernel3"
+            - name: "📦 Package with AnyKernel3"
         working-directory: ./${{ env.kernelDir }}
         run: |
           echo "Cloning AnyKernel3..."
           git clone https://github.com/osm0sis/AnyKernel3.git anykernel
-          
-          echo "Copying compiled kernel image..."
-          # Assuming your output is in 'out' and you are building arm64
-          cp out/arch/arm64/boot/Image anykernel/
-          
-          # If your build also generated dtb files, copy them too
-          # cp out/arch/arm64/boot/dts/exynos/*.dtb anykernel/dtb/
-          
-          echo "Configuring anykernel.sh..."
+
+          # -----------------------------------------------------------------
+          # Copy the built kernel image (now under $kernelDir/$kernelName/$OUT_DIR)
+          # -----------------------------------------------------------------
+          KERNEL_IMG="./${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/Image"
+          if [[ -f "$KERNEL_IMG" ]]; then
+            cp "$KERNEL_IMG" anykernel/
+            echo "✔ Copied kernel: $KERNEL_IMG"
+          else
+            echo "❌ Kernel image not found at $KERNEL_IMG"
+            exit 1
+          fi
+
+          # Optionally copy dtb/dtbo if you built them
+          DTB_DIR="./${{ env.kernelName }}/${{ env.OUT_DIR }}/arch/${{ env.ARCH }}/boot/dtb"
+          if [[ -d "$DTB_DIR" ]]; then
+            cp -r "$DTB_DIR" anykernel/dtb/
+          fi
+
           cd anykernel
-          
-          # Forcefully replace variables without semicolons
+
+          # -------------------------------------------------------------
+          # Minimal AnyKernel3 tweaks – keep the device codename correct
+          # -------------------------------------------------------------
           sed -i 's/kernel.string=.*/kernel.string=Custom NetHunter Kernel/g' anykernel.sh
-          
-          # Turn off the device check so it bypasses this error completely
           sed -i 's/do.devicecheck=.*/do.devicecheck=0/g' anykernel.sh
-          
-          # Set the device names anyway, just for clean code
-          sed -i 's/device.name1=.*/device.name1=gta4xlwifi/g' anykernel.sh
+          # Use the correct device names (gta4xwifi is the codename)
+          sed -i 's/device.name1=.*/device.name1=gta4xwifi/g' anykernel.sh
           sed -i 's/device.name2=.*/device.name2=gta4xl/g' anykernel.sh
-          
-          # Use "auto" to let AnyKernel3 find the boot partition itself
           sed -i 's|^block=.*|block=auto|g' anykernel.sh
-          
+
           echo "Zipping up AnyKernel3 package..."
           zip -r9 ../AnyKernel3-gta4xlwifi-NetHunter.zip * -x .git README.md *placeholder
-          
-      - name: "🚀 Upload Flashable Zip"
-        uses: actions/upload-artifact@v4
-        with:
-          name: AnyKernel3-gta4xlwifi-NetHunter
+
+          echo "✅ AnyKernel3 zip ready: AnyKernel3-gta4xlwifi-NetHunter.zip"
           path: ./${{ env.kernelDir }}/AnyKernel3-gta4xlwifi-NetHunter.zip
 
