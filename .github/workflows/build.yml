@@ -1,17 +1,21 @@
 name: Build NetHunter Kernel for GTA4XWiFi
 
+# -------------------------------------------------
+# 1️⃣ Controls – manual trigger (add `push:` if you want auto‑run on commits)
+# -------------------------------------------------
 on:
-  workflow_dispatch:          # manual trigger (add `push:` if you want auto‑run)
+  workflow_dispatch:
   # push:
   #   branches: [ main, master ]
 
+# -------------------------------------------------
+# 2️⃣ Global environment variables (all steps see these)
+# -------------------------------------------------
 env:
-  # -------------------------------------------------
-  # 1️⃣ Device & build configuration
-  # -------------------------------------------------
+  # Device & build configuration
   DEVICE_CODENAME: gta4xwifi
-  KERNEL_SOURCE: https://github.com/LineageOS/kernel-msm   # mirror (see note below)
-  KERNEL_BRANCH: sec(α).03.00                # <-- quoted in the clone step
+  KERNEL_SOURCE: https://github.com/LineageOS/kernel-msm   # mirror (public, always reachable)
+  KERNEL_BRANCH: sec(α).03.00                # note: quoted in the checkout step below
   KERNEL_CONFIG: GTA4XWiFi_defconfig
   NET_HUNTER_PATCHES: https://github.com/nethunter-project/nethunter-kernel-patches/archive/refs/heads/master.zip
 
@@ -19,27 +23,53 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 📥 Checkout the project (includes device trees, patches, etc.)
+      # -------------------------------------------------
+      # 0️⃣ (Optional) Ensure git can sign commits harmlessly and disable any broken credential helpers
+      # -------------------------------------------------
+      - name: 🛠️ Configure Git (no credential helper)
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          # Disable libsecret / any other helper that might be broken in the runner
+          git config --global credential.helper ''
+
+      # -------------------------------------------------
+      # 1️⃣ Checkout the repository that holds our device trees, configs, patches, etc.
+      # -------------------------------------------------
+      - name: 📥 Checkout project sources
         uses: actions/checkout@v4
 
+      # -------------------------------------------------
+      # 2️⃣ Install build tool‑chain (same as before)
+      # -------------------------------------------------
       - name: 🐧 Install build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y bc flex bison libssl-dev libelf-dev libncurses5-dev xz-utils \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf tmux curl zip unzip
 
-      - name: 📦 Clone kernel sources (quoted branch)
-        run: |
-          # The branch name contains parentheses & a Greek letter – quoting prevents
-          # Bash from interpreting them as part of an arithmetic expression.
-          git clone --recursive --branch "${{ env.KERNEL_BRANCH }}" ${{ env.KERNEL_SOURCE }} kernel --depth=1
+      # -------------------------------------------------
+      # 3️⃣ **Use actions/checkout to pull the kernel sources** (no raw git clone)
+      # -------------------------------------------------
+      - name: 📦 Checkout kernel sources (mirror)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.KERNEL_SOURCE }}
+          ref: ${{ env.KERNEL_BRANCH }}
+          path: kernel          # <-- where the kernel tree will live
 
-      - name: 📂 Copy device‑tree & defconfig
+      # -------------------------------------------------
+      # 4️⃣ Copy device‑tree blobs & defconfig into the kernel tree
+      # -------------------------------------------------
+      - name: 📂 Copy device tree & defconfig
         run: |
           mkdir -p kernel/arch/arm64/boot/dts/samsung/
           cp device/samsung/${{ env.DEVICE_CODENAME }}/dt/*.dtsi kernel/arch/arm64/boot/dts/samsung/ || true
           cp device/samsung/${{ env.DEVICE_CODENAME }}/${{ env.KERNEL_CONFIG }} kernel/.config
 
+      # -------------------------------------------------
+      # 5️⃣ Apply NetHunter patches (the archive contains the patch files)
+      # -------------------------------------------------
       - name: 📜 Apply NetHunter patches
         run: |
           cd kernel
@@ -47,7 +77,10 @@ jobs:
           unzip patches.zip
           git apply nethunter-kernel-patches-master/*.patch || true
 
-      - name: ⚙️ Build kernel, dtbs & modules
+      # -------------------------------------------------
+      # 6️⃣ Build kernel, dtbs & modules (same arguments as before)
+      # -------------------------------------------------
+      - name: ⚙️ Build kernel & modules
         run: |
           cd kernel
           make -j$(nproc) O=out ${{ env.KERNEL_CONFIG }}
@@ -56,6 +89,9 @@ jobs:
           make -j$(nproc) O=outImage INSTALL_MOD_PATH=modules modules_install
           zip -r kernel-build.zip out/arch/arm64/boot/Image out/arch/arm64/boot/dts/samsung/*.dtb out/lib
 
+      # -------------------------------------------------
+      # 7️⃣ Upload the compiled kernel artefacts
+      # -------------------------------------------------
       - name: 📤 Upload kernel artefacts
         uses: actions/upload-artifact@v4
         with:
@@ -63,13 +99,17 @@ jobs:
           path: kernel/kernel-build.zip
           retention-days: 7
 
+      # -------------------------------------------------
+      # 8️⃣ Package the result with AnyKernel3 (the classic flashable zip)
+      # -------------------------------------------------
       - name: 📦 Package with AnyKernel3
         run: |
           cd kernel
           git clone https://github.com/osm0sis/AnyKernel3.git anykernel
+          # Copy the built Image file
           cp out/arch/arm64/boot/Image anykernel/
           cd anykernel
-          # Minimal AnyKernel3 tweaks
+          # Tiny AnyKernel3 tweaks
           sed -i 's/kernel.string=.*/kernel.string=Custom NetHunter Kernel/g' anykernel.sh
           sed -i 's/do.devicecheck=.*/do.devicecheck=0/g' anykernel.sh
           sed -i 's/device.name1=.*/device.name1=gta4xwifi/g' anykernel.sh
@@ -78,6 +118,9 @@ jobs:
           zip -r9 ../AnyKernel3-gta4xlwifi-NetHunter.zip *
           echo "✅ AnyKernel3 zip ready"
 
+      # -------------------------------------------------
+      # 9️⃣ Upload the flashable zip
+      # -------------------------------------------------
       - name: 🚀 Upload Flashable Zip
         uses: actions/upload-artifact@v4
         with:
