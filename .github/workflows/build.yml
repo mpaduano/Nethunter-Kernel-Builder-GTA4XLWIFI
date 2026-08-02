@@ -1,247 +1,71 @@
-name: Build kernels
+name: Build NetHunter Kernel for GTA4XWiFi
 
-# -------------------------------------------------
-# 1️⃣ Define when the workflow runs
-# -------------------------------------------------
 on:
-  workflow_dispatch:   # manual trigger (you can also add `push:` if needed)
+  workflow_dispatch:   # manual trigger (add push: if you want auto‑run on commits)
+  # push:
+  #   branches: [ main, master ]
 
-# -------------------------------------------------
-# 2️⃣ Global environment (shared by all jobs)
-# -------------------------------------------------
 env:
-  CONFIGURATION: "repos.json"
-  OUT_DIR: "out"
+  DEVICE_CODENAME: gta4xwifi
+  KERNEL_SOURCE: https://source.codeaurora.org/quic/kernel/msm
+  KERNEL_BRANCH: sec(α).03.00          # <-- quoted here, but it’s a literal string
+  KERNEL_CONFIG: GTA4XWiFi_defconfig
+  NET_HUNTER_PATCHES: https://github.com/nethunter-project/nethunter-kernel-patches/archive/refs/heads/master.zip
 
 jobs:
-  # -------------------------------------------------
-  # Job A – parse the JSON once and export the matrix
-  # -------------------------------------------------
-  Set-repos:
-    name: "Parse repos.json"
+  build:
     runs-on: ubuntu-latest
-    outputs:
-      repos:      ${{ steps.generate-matrix.outputs.repos }}
-      toolchains: ${{ steps.generate-matrix.outputs.toolchains }}
     steps:
-      - name: 📥 Checkout
+      - name: 📥 Checkout repo
         uses: actions/checkout@v4
 
-      - name: 📄 Show repos.json
-        run: cat ${{ env.CONFIGURATION }}
-
-      - name: 🔢 Generate matrix & toolchains output
-        id: generate-matrix
-        run: |
-          # Dump the whole JSON as a compact string for the matrix
-          repos_json=$(jq -c . < ${{ env.CONFIGURATION }})
-          echo "repos=$repos_json" >> $GITHUB_OUTPUT
-
-          # Flatten toolchains into a JSON array – each entry will be accessible via matrix.toolchains
-          # (assumes repos.json has a top‑level "tool
-  # -------------------------------------------------
-  # Job B – one matrix entry per device (still fast)
-  # -------------------------------------------------
-  Build-Kernel:
-    name: "Build kernel"
-    runs-on: ubuntu-latest
-    needs: [Set-repos]
-    strategy:
-      max-parallel: 2
-      fail-fast: false
-      matrix:
-        # flatten the JSON so each entry is a single device dict
-        include: ${{ fromJSON(needs.Set-repos.outputs.repos) }}
-    # -------------------------------------------------
-    # 2️⃣ Local env for this matrix entry (no JSON here)
-    # -------------------------------------------------
-    env:
-      KERNEL_DIR: ${{ matrix.kernelSource.name }}_${{ matrix.kernelSource.device }}
-      KERNEL_NAME: ${{ matrix.kernelSource.name }}
-      KERNEL_DEVICE: ${{ matrix.kernelSource.device }}
-      DEFCONFIG_NAME: ${{ matrix.kernelSource.device }}_defconfig
-      WITH_KERNEL_SU: ${{ matrix.withKernelSU }}
-
-    steps:
-      # -------------------------------------------------
-      # 0️⃣ Prepare a single place for the final artefacts
-      # -------------------------------------------------
-      - name: 📂 Create workspace
-        run: mkdir -p ${{ env.KERNEL_DIR }}
-
-      # -------------------------------------------------
-      # 1️⃣ Install build deps (unchanged)
-      # -------------------------------------------------
-      - name: 🛠️ Install prerequisites
+      - name: 🐧 Setup build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential bc curl git zip ftp \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-            libssl-dev lftp zstd wget libfl-dev python3 \
-            libarchive-tools jq
+          sudo apt-get install -y bc flex bison libssl-dev libelf-dev libncurses5-dev xz-utils \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf tmux curl zip unzip
 
-      # -------------------------------------------------
-      # 2️⃣ Clone the kernel sources (unchanged)
-      # -------------------------------------------------
-      - name: 🌳 Clone kernel source
-        working-directory: ./${{ env.KERNEL_DIR }}
+      - name: 📦 Clone kernel sources
         run: |
-          git clone --recursive --branch ${{ matrix.kernelSource.branch }} ${{ matrix.kernelSource.repo }} ${{ env.KERNEL_NAME }} --depth=1
+          # Quote the branch – parentheses & Greek letters cause syntax errors otherwise
+          git clone --recursive --branch "${{ env.KERNEL_BRANCH }}" ${{ env.KERNEL_SOURCE }} kernel --depth=1
 
-      # -------------------------------------------------
-      # 3️⃣ Get toolchains – **use the output from Set-repos**
-      # -------------------------------------------------
-      - name: 🔧 Get toolchains
-        working-directory: ./${{ env.KERNEL_DIR }}/${{ env.KERNEL_NAME }}
-        env:
-          # The whole toolchains JSON for this entry is stored in the matrix already,
-          # but we re‑export it here for readability.
-          TOOLCHAINS: ${{ toJSON(matrix.toolchains) }}
+      - name: 📂 Copy device‑tree & defconfig
         run: |
-          set -euo pipefail
-          toolchains_num=$(echo "$TOOLCHAINS" | jq 'length')
-          echo "Found $toolchains_num toolchains"
+          mkdir -p kernel/arch/arm64/boot/dts/samsung/
+          cp device/samsung/${{ env.DEVICE_CODENAME }}/dt/*.dtsi kernel/arch/arm64/boot/dts/samsung/ || true
+          cp device/samsung/${{ env.DEVICE_CODENAME }}/${{ env.KERNEL_CONFIG }} kernel/.config
 
-          for ((i=0; i<toolchains_num; i++)); do
-            name=$(echo "$TOOLCHAINS" | jq -r ".[$i].name")
-            repo=$(echo "$TOOLCHAINS" | jq -r ".[$i].repo")
-            branch=$(echo "$TOOLCHAINS" | jq -r ".[$i].branch")
-            echo "→ cloning $name ($branch) into ./$name"
-            git clone --recursive --branch "$branch" "$repo" "$name" --depth=1
-            echo "$(pwd)/$name" >> $GITHUB_PATH
-            echo "$(pwd)/$name/bin" >> $GITHUB_PATH
-          done
-          echo "PATH now: $PATH"
-
-      # -------------------------------------------------
-      # 4️⃣ Determine make arguments – **export ARCH as output**
-      # -------------------------------------------------
-      - name: ⚙️ Compute make args
-        id: compute-args
-        working-directory: ./${{ env.KERNEL_DIR }}/${{ env.KERNEL_NAME }}
-        env:
-          PARAMS: ${{ toJSON(matrix.params) }}
-          EXTRA: ${{ toJSON(matrix.extraParams) }}
+      - name: 📜 Apply NetHunter patches
         run: |
-          set -euo pipefail
+          cd kernel
+          curl -L ${{ env.NET_HUNTER_PATCHES }} -o patches.zip
+          unzip patches.zip
+          git apply nethunter-kernel-patches-master/*.patch || true
 
-          # Parse the JSON (safe because it's already a string)
-          arch=$(jq -r '.ARCH' <<< "$PARAMS")
-          cross=$(jq -r '.CROSS_COMPILE' <<< "$PARAMS")
-          cross_compat=$(jq -r '.CROSS_COMPILE_COMPAT' <<< "$PARAMS")
-          clang_triple=$(jq -r '.CLANG_TRIPLE' <<< "$PARAMS")
-          ar=$(jq -r '.AR' <<< "$PARAMS")
-          cc=$(jq -r '.CC' <<< "$PARAMS")
-
-          # Export ARCH for later steps (via OUTPUT, not env!)
-          echo "ARCH=$arch" >> $GITHUB_OUTPUT
-
-          # Build the argument string
-          args="-j$(nproc --all) O=$(pwd)/$OUT_DIR"
-
-          [[ "$arch" != "null" ]] && args="$args ARCH=$arch"
-          [[ "$cross" != "null" ]] && args="$args CROSS_COMPILE=$cross"
-          [[ "$cross_compat" != "null" ]] && args="$args CROSS_COMPILE_ARM32=$cross_compat"
-          [[ "$clang_triple" != "null" ]] && args="$args CLANG_TRIPLE=$clang_triple"
-          [[ "$ar" != "null" ]] && args="$args AR=$ar"
-          [[ "$cc" != "null" ]] && args="$args CC=$cc"
-
-          # Extra params (rarely used)
-          if [[ "$EXTRA" != "null" && "$EXTRA" != "{}" ]]; then
-            extra=$(jq -r 'to_entries[] | select(.value != "") | "\(.key)=\(.value)"' <<< "$EXTRA" |
-                    tr '\n' ' ' | sed 's/ $//')
-            args="$args $extra"
-          fi
-
-          echo "args=$args" >> $GITHUB_OUTPUT
-          echo "🧭 generated args: $args"
-
-      # -------------------------------------------------
-      # 5️⃣ Generate the defconfig (writes to out/.config)
-      # -------------------------------------------------
-      - name: ⚙️ Generate defconfig
-        working-directory: ./${{ env.KERNEL_DIR }}/${{ env.KERNEL_NAME }}
-        env:
-          ARGS: ${{ steps.compute-args.outputs.args }}
+      - name: ⚙️ Build kernel & modules
         run: |
-          make $ARGS ${{ env.DEFCONFIG_NAME }}
+          cd kernel
+          make -j$(nproc) O=out ${{ env.KERNEL_CONFIG }}
+          make -j$(nproc) O=out dtbs
+          make -j$(nproc) O=out modules
+          make -j$(nproc) O=outImage INSTALL_MOD_PATH=modules modules_install
+          zip -r kernel-build.zip out/arch/arm64/boot/Image out/arch/arm64/boot/dts/samsung/*.dtb out/lib
 
-      # -------------------------------------------------
-      # 6️⃣ Apply any extra overlays (still in out/.config)
-      # -------------------------------------------------
-      - name: 📝 Apply overlay configs
-        working-directory: ./${{ env.KERNEL_DIR }}/${{ env.KERNEL_NAME }}/${{ env.OUT_DIR }}
-        env:
-          ARGS: ${{ steps.compute-args.outputs.args }}
-        run: |
-          echo "CONFIG_OF_CONFIGFS=y" >> .config
-          echo "CONFIG_OF_OVERLAY=y"   >> .config
-          cd ..
-          make $ARGS olddefconfig
-
-      # -------------------------------------------------
-      # 7️⃣ Build the kernel & modules
-      # -------------------------------------------------
-      - name: 🛠️ Build kernel
-        working-directory: ./${{ env.KERNEL_DIR }}/${{ env.KERNEL_NAME }}/${{ env.OUT_DIR }}
-        env:
-          ARGS: ${{ steps.compute-args.outputs.args }}
-        run: |
-          make $ARGS
-
-      # -------------------------------------------------
-      # 8️⃣ Prepare a single artifact path for upload
-      # -------------------------------------------------
-      - name: 📦 Prepare artifact path
-        id: art-path
-        working-directory: ./${{ env.KERNEL_DIR }}/${{ env.KERNEL_NAME }}
-        env:
-          ARCH: ${{ steps.compute-args.outputs.ARCH }}
-        run: |
-          # Build the space‑separated list of files we want to keep
-          ARTIFACTS=(
-            "out/arch/$ARCH/boot/Image"
-            "out/arch/$ARCH/boot/Image.gz"
-            "out/arch/$ARCH/boot/dtb"
-            "out/arch/$ARCH/boot/dtbo.img"
-          )
-          # Ensure they exist (skip missing ones)
-          final=""
-          for f in "${ARTIFACTS[@]}"; do
-            if [[ -e "$f" ]]; then
-              final="$final $f"
-            else
-              echo "::warning::Missing artifact: $f"
-            fi
-          done
-          # Export as a single multiline string for the upload step
-          echo "paths<<EOF" >> $GITHUB_OUTPUT
-          echo "$final" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      # -------------------------------------------------
-      # 9️⃣ Upload kernel artefacts
-      # -------------------------------------------------
-      - name: 📤 Upload Kernel Artifacts
+      - name: 📤 Upload kernel artefacts
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-build-${{ env.KERNEL_DEVICE }}
-          path: ${{ steps.art-path.outputs.paths }}
-          if-no-files-found: ignore
+          name: kernel-${{ env.DEVICE_CODENAME }}
+          path: kernel/kernel-build.zip
           retention-days: 7
 
-      # -------------------------------------------------
-      # 🔟 Package with AnyKernel3 (keep this part unchanged)
-      # -------------------------------------------------
       - name: 📦 Package with AnyKernel3
-        working-directory: ./${{ env.KERNEL_DIR }}
         run: |
+          cd kernel
           git clone https://github.com/osm0sis/AnyKernel3.git anykernel
-          # Copy the built kernel image (now under out/arch/ARCH/boot/Image)
-          cp ${{ env.KERNEL_NAME }}/${{ env.OUT_DIR }}/arch/${{ steps.compute-args.outputs.ARCH }}/boot/Image anykernel/
+          cp out/arch/arm64/boot/Image anykernel/
           cd anykernel
-          # Minimal AnyKernel3 tweaks
+          # Basic AnyKernel3 tweaks
           sed -i 's/kernel.string=.*/kernel.string=Custom NetHunter Kernel/g' anykernel.sh
           sed -i 's/do.devicecheck=.*/do.devicecheck=0/g' anykernel.sh
           sed -i 's/device.name1=.*/device.name1=gta4xwifi/g' anykernel.sh
@@ -254,6 +78,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AnyKernel3-gta4xlwifi-NetHunter
-          path: ./${{ env.KERNEL_DIR }}/AnyKernel3-gta4xlwifi-NetHunter.zip
-
-
+          path: kernel/AnyKernel3-gta4xlwifi-NetHunter.zip
