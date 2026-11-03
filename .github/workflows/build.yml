@@ -222,7 +222,7 @@ jobs:
           cp out/arch/arm64/boot/Image anykernel/
           
           # If your build also generated dtb files, copy them too
-          # cp out/arch/arm64/boot/dts/exynos/*.dtb anykernel/dtb/
+          cp out/arch/arm64/boot/dts/exynos/*.dtb anykernel/dtb/
           
           echo "Configuring anykernel.sh..."
           cd anykernel
@@ -233,7 +233,7 @@ jobs:
           sed -i 's/device.name2=.*/device.name2=gta4xl/g' anykernel.sh
           
           # IMPORTANT: Replace the path below with the output you got from Termux
-          sed -i 's|block=.*|block=/dev/block/platform//dev/block/sda12/by-name/boot|g' anykernel.sh
+          sed -i 's|block=.*|block=/dev/block/platform/13520000.ufs/by-name/boot|g' anykernel.sh
           
           echo "Zipping up AnyKernel3 package..."
           zip -r9 ../AnyKernel3-gta4xlwifi-NetHunter.zip * -x .git README.md *placeholder
